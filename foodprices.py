@@ -54,18 +54,18 @@ FX_CURRENCIES = {
 # 3. LIVE DATA FETCHING & PROPHET FORECASTING ENGINE
 # -----------------------------------------------------------------------------
 @st.cache_data(ttl=3600)  # Refresh live market data every hour
-def fetch_and_forecast_commodity(ticker_symbol, target_year):
-    # Fetch historical daily market data from 2020 to present
+def fetch_and_forecast_commodity(ticker_symbol, target_year, start_year_str):
+    # Fetch historical daily market data
     ticker = yf.Ticker(ticker_symbol)
     df_raw = ticker.history(period="max")
     
     if df_raw.empty:
-        return None, None
+        return None, None, None
     
     # Clean dataframe
     df_raw = df_raw.reset_index()
     df_raw['Date'] = pd.to_datetime(df_raw['Date']).dt.tz_localize(None)
-    df_clean = df_raw[df_raw['Date'] >= "2020-01-01"][['Date', 'Close']].dropna()
+    df_clean = df_raw[df_raw['Date'] >= start_year_str][['Date', 'Close']].dropna()
     df_clean.columns = ['ds', 'y']
 
     # -------------------------------------------------------------------------
@@ -95,6 +95,9 @@ def fetch_and_forecast_commodity(ticker_symbol, target_year):
     else:
         forecast = model.predict(df_clean[['ds']])
 
+    # Extract in-sample fitted values for historical metric calculation
+    historical_fitted = forecast[forecast['ds'].isin(df_clean['ds'])][['ds', 'yhat']].reset_index(drop=True)
+
     # Combine into unified dataset
     df_clean['type'] = 'Historical'
     
@@ -104,7 +107,7 @@ def fetch_and_forecast_commodity(ticker_symbol, target_year):
     full_df = pd.concat([df_clean, forecast_subset], ignore_index=True)
     full_df = full_df[full_df['ds'] <= target_date]
     
-    return full_df, last_date
+    return full_df, last_date, historical_fitted
 
 @st.cache_data(ttl=3600)
 def get_fx_rate(fx_ticker):
@@ -136,6 +139,15 @@ selected_country_name = st.sidebar.selectbox(
     options=list(FX_CURRENCIES.keys())
 )
 
+selected_start_option = st.sidebar.radio(
+    "Historical Baseline Horizon",
+    options=["2020 (Recent Macro)", "2010 (Long-Term Dynamic)"],
+    index=0,
+    help="Select start year for historical model fitting. 2010 provides 16+ years of historical data."
+)
+start_year_str = "2010-01-01" if "2010" in selected_start_option else "2020-01-01"
+base_year_label = "2010" if "2010" in selected_start_option else "2020"
+
 selected_horizon_year = st.sidebar.selectbox(
     "Target Prediction Horizon Year",
     options=[2028, 2030, 2032, 2034, 2036],
@@ -159,25 +171,27 @@ tab_forecast, tab_engine, tab_ml_docs = st.tabs([
 
 # MAIN DATA COMPUTATION
 with st.spinner("Fetching live market data and computing forecast..."):
-    df_data, cutoff_date = fetch_and_forecast_commodity(
+    df_data, cutoff_date, hist_fitted = fetch_and_forecast_commodity(
         commodity_info["ticker"],
-        selected_horizon_year
+        selected_horizon_year,
+        start_year_str
     )
     fx_rate = get_fx_rate(country_info["fx_ticker"])
 
 if df_data is not None:
-    # Convert base USD price to selected region currency
-    df_data['price_converted'] = df_data['y'] * fx_rate
+    # Convert base USD price to selected region currency & round values
+    df_data['price_converted'] = np.round(df_data['y'] * fx_rate, 2)
+    df_data['y'] = np.round(df_data['y'], 2)
     df_data['year'] = df_data['ds'].dt.year
 
     hist_df = df_data[df_data['type'] == 'Historical']
     forecast_df = df_data[df_data['type'] == 'Forecast']
 
     latest_hist_price = hist_df['price_converted'].iloc[-1]
-    base_2020_price = hist_df['price_converted'].iloc[0]
+    base_price = hist_df['price_converted'].iloc[0]
     target_forecast_price = forecast_df['price_converted'].iloc[-1] if not forecast_df.empty else latest_hist_price
 
-    hist_change = ((latest_hist_price - base_2020_price) / base_2020_price) * 100
+    hist_change = ((latest_hist_price - base_price) / base_price) * 100
     forecast_change = ((target_forecast_price - latest_hist_price) / latest_hist_price) * 100
 
     # =========================================================================
@@ -186,8 +200,8 @@ if df_data is not None:
     with tab_forecast:
         # KPI CARDS
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("2020 Base Price", f"{country_info['symbol']}{base_2020_price:.2f} {country_info['iso']}")
-        c2.metric("Latest Market Price", f"{country_info['symbol']}{latest_hist_price:.2f} {country_info['iso']}", f"{hist_change:+.1f}% since 2020")
+        c1.metric(f"{base_year_label} Base Price", f"{country_info['symbol']}{base_price:.2f} {country_info['iso']}")
+        c2.metric("Latest Market Price", f"{country_info['symbol']}{latest_hist_price:.2f} {country_info['iso']}", f"{hist_change:+.1f}% since {base_year_label}")
         c3.metric(f"Predicted Price ({selected_horizon_year})", f"{country_info['symbol']}{target_forecast_price:.2f} {country_info['iso']}")
         c4.metric("Forecasted Growth", f"{forecast_change:+.1f}%")
 
@@ -202,7 +216,7 @@ if df_data is not None:
             x=hist_df['ds'],
             y=hist_df['price_converted'],
             mode='lines',
-            name='Live Historical Data',
+            name=f'Live Historical Data (From {base_year_label})',
             line=dict(color='#1f77b4', width=2)
         ))
 
@@ -229,7 +243,8 @@ if df_data is not None:
         st.subheader(f"📊 Projected Yearly Averages ({country_info['iso']})")
         
         yearly_summary = []
-        years_to_show = [y for y in range(2020, selected_horizon_year + 1) if y % 2 == 0]
+        start_yr_num = int(base_year_label)
+        years_to_show = [y for y in range(start_yr_num, selected_horizon_year + 1) if y % 2 == 0]
         
         for yr in years_to_show:
             yr_sub = df_data[df_data['year'] == yr]
@@ -240,13 +255,13 @@ if df_data is not None:
                     "Year": yr,
                     "Data Type": d_type,
                     "Average Price": f"{country_info['symbol']}{avg_p:.2f} {country_info['iso']}",
-                    "Growth vs 2020": f"{((avg_p - base_2020_price)/base_2020_price)*100:+.1f}%"
+                    "Growth vs Baseline": f"{((avg_p - base_price)/base_price)*100:+.1f}%"
                 })
                 
         st.table(pd.DataFrame(yearly_summary))
 
     # =========================================================================
-    # TAB 2: DATA ENGINE OVERVIEW
+    # TAB 2: DATA ENGINE OVERVIEW & DATASET INSPECTION
     # =========================================================================
     with tab_engine:
         st.header("⚙️ Data Pipeline & Currency Engine")
@@ -271,6 +286,34 @@ if df_data is not None:
             * **Fallback Mechanism:** Handles reverse currency pairs (like EUR/USD and GBP/USD) automatically to standardize output units.
             """)
 
+        st.markdown("---")
+
+        # RAW & PROCESSED DATASET INSPECTION TABLE
+        st.subheader("📋 Raw & Processed Dataset Inspection")
+        st.markdown(f"Displaying historical and forecasted price records for **{selected_commodity_name}** in **{country_info['iso']}** (Baseline: **{base_year_label}**).")
+
+        display_df = df_data[['ds', 'type', 'y', 'price_converted']].copy()
+        display_df.columns = ['Date', 'Data Type', 'Base USD Price', f'Converted Price ({country_info["iso"]})']
+
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=300
+        )
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            csv_data = display_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Dataset (CSV)",
+                data=csv_data,
+                file_name=f"{commodity_info['ticker']}_forecast_{selected_country_name}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+        with col_d2:
+            st.caption("💡 **Tip:** Downloading the CSV exports both historical exchange quotes and model predictions.")
+
     # =========================================================================
     # TAB 3: MACHINE LEARNING MODELS & DATASET SPECIFICATIONS
     # =========================================================================
@@ -280,6 +323,52 @@ if df_data is not None:
         This dashboard combines **real-time financial market streams** with **Facebook Prophet time-series decomposition** 
         to forecast long-term commodity trends.
         """)
+
+        # INFLATION & PURCHASING POWER NOTE
+        st.info(
+            "💡 **Inflation & Purchasing Power Note:** Output figures represent **nominal projected prices**. "
+            "Long-term monetary inflation is implicitly captured via Prophet's trend component $g(t)$, which "
+            "extrapolates historical structural price shifts into the target horizon without discounting to constant base-year dollars."
+        )
+
+        st.markdown("---")
+
+        # LIVE MODEL PERFORMANCE DIAGNOSTICS
+        st.subheader("🔬 Live Model Diagnostics & Accuracy Metrics")
+        st.markdown(f"Model fit accuracy evaluated against historical settlement prices from **{base_year_label}** to Present:")
+
+        if hist_fitted is not None and not hist_df.empty:
+            # Match historical actuals with in-sample fitted values
+            y_actual = hist_df['price_converted'].values
+            y_pred = hist_fitted['yhat'].values[:len(y_actual)] * fx_rate
+
+            # Compute error metrics (MAPE: 1 decimal, RMSE: 2 decimals)
+            mape_val = np.mean(np.abs((y_actual - y_pred) / y_actual)) * 100
+            rmse_val = np.sqrt(np.mean((y_actual - y_pred) ** 2))
+
+            col_m1, col_m2 = st.columns(2)
+            
+            with col_m1:
+                st.metric(
+                    label="MAPE (Mean Absolute Percentage Error)", 
+                    value=f"{mape_val:.1f}%", 
+                    help="Standardized accuracy metric across varying asset scales. Lower percentage indicates tighter historical fit."
+                )
+                st.markdown("""
+                * **Scale Invariant:** Allows direct accuracy comparisons across vastly different commodity price scales (e.g., Gold vs. Sugar).
+                * **Interpretation:** Reflects average percentage deviation of the model fit from actual daily settlement prices.
+                """)
+
+            with col_m2:
+                st.metric(
+                    label=f"RMSE (Root Mean Squared Error in {country_info['iso']})", 
+                    value=f"{country_info['symbol']}{rmse_val:.2f}",
+                    help="Penalizes large forecasting errors heavily during high-volatility market events."
+                )
+                st.markdown("""
+                * **Volatility Penalty:** Squares individual errors before averaging, making it highly sensitive to extreme price spikes.
+                * **Interpretation:** Measures absolute standard deviation of residuals in local target currency.
+                """)
 
         st.markdown("---")
 
@@ -358,7 +447,7 @@ if df_data is not None:
         dataset_specs = [
             {"Attribute": "Data Source", "Specification": "Yahoo Finance (`yfinance` API)", "Details": "Live daily settlement prices"},
             {"Attribute": "Update Frequency", "Specification": "Hourly (`ttl=3600`)", "Details": "Automated Streamlit cache invalidation"},
-            {"Attribute": "Historical Depth", "Specification": "Jan 1, 2020 – Present", "Details": "Captures post-2020 inflation regimes"},
+            {"Attribute": "Historical Depth", "Specification": f"Jan 1, {base_year_label} – Present", "Details": "Configurable dynamic baseline"},
             {"Attribute": "Frequency Domain", "Specification": "Daily (Trading Days)", "Details": "Excludes weekend exchange closures"},
             {"Attribute": "FX Conversion Engine", "Specification": "Real-time Spot Rates", "Details": "Converts USD futures to local currency (EUR, GBP, JPY, etc.)"},
             {"Attribute": "Outlier Treatment", "Specification": "Robust Scaler / Log Transform", "Details": "Smooths extreme temporary market spikes"}
