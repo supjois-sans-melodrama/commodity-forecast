@@ -68,6 +68,13 @@ def fetch_and_forecast_commodity(ticker_symbol, target_year):
     df_clean = df_raw[df_raw['Date'] >= "2020-01-01"][['Date', 'Close']].dropna()
     df_clean.columns = ['ds', 'y']
 
+    # -------------------------------------------------------------------------
+    # UNIT CORRECTION: Convert US Cents to USD for Wheat, Corn, Sugar, Coffee
+    # CBOT Wheat (ZW=F), Corn (ZC=F), Sugar (SB=F), Coffee (KC=F) are quoted in Cents
+    # -------------------------------------------------------------------------
+    if ticker_symbol in ["ZW=F", "ZC=F", "SB=F", "KC=F"]:
+        df_clean['y'] = df_clean['y'] / 100.0
+
     # Train Prophet Model
     model = Prophet(
         daily_seasonality=False,
