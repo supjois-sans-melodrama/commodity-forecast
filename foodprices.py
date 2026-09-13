@@ -19,7 +19,7 @@ st.markdown("Live commodity prices (from 2010) with dynamic machine learning pro
 
 st.warning(
     "⚠️ **Prototype Notice:** Historical market quotes are fetched live from Yahoo Finance (`yfinance`). "
-    "Predictive outputs are generated dynamically via Facebook Prophet and are for illustrative purposes."
+    "Predictive outputs are generated dynamically via Meta Prophet and are for illustrative purposes."
 )
 
 # -----------------------------------------------------------------------------
@@ -89,7 +89,7 @@ def fetch_and_forecast_commodity(ticker_symbol, target_year, fx_ticker):
     # Nominal Conversion: Local Price = USD Price * Spot FX Rate
     df_clean['price_converted'] = df_clean['y'] * df_clean['fx_rate']
 
-    # Fit Prophet Model with stabilized trend parameters and lower changepoint flexibility
+    # Fit Meta Prophet Model with stabilized trend parameters and lower changepoint flexibility
     prophet_df = df_clean[['ds', 'price_converted']].rename(columns={'price_converted': 'y'})
     model = Prophet(
         daily_seasonality=False,
@@ -221,7 +221,7 @@ if df_data is not None:
                 x=plot_forecast['ds'],
                 y=plot_forecast['price_converted'],
                 mode='lines',
-                name=f'Prophet Forecast (to {selected_horizon_year})',
+                name=f'Meta Prophet Forecast (to {selected_horizon_year})',
                 line=dict(color='#ff7f0e', width=2.5, dash='dash')
             ))
 
@@ -351,7 +351,7 @@ if df_data is not None:
         # ---------------------------------------------------------------------
         st.subheader("📐 Deconstructed Mathematical Architecture")
         st.markdown("""
-        Facebook Prophet utilizes an additive time-series decomposition model with three primary elements: 
+        Meta Prophet utilizes an additive time-series decomposition model with three primary elements: 
         trend, seasonality, and holidays/external shocks.
         """)
 
@@ -388,7 +388,7 @@ if df_data is not None:
 
         model_comp_data = [
             {
-                "Model Architecture": "Facebook Prophet (Selected)", 
+                "Model Architecture": "Meta Prophet (Selected)", 
                 "Mathematical Approach": "Additive Non-linear GAM ($y(t) = g(t) + s(t) + \epsilon_t$)", 
                 "Strengths": "Natively models annual seasonality and handles exchange holidays/missing data without explicit padding.", 
                 "Limitations & Trade-offs": "Does not model cross-asset correlations (e.g., Crude Oil influencing production costs).", 
