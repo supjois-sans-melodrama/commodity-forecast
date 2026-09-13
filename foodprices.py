@@ -18,8 +18,9 @@ st.title("📈 Real-Time Global Commodity Price & Forecast Dashboard")
 st.markdown("Live commodity prices (from 2010) with dynamic machine learning projections up to **2036**.")
 
 st.warning(
-    "⚠️ **Prototype Notice:** Historical market quotes are fetched live from Yahoo Finance (`yfinance`). "
-    "Predictive outputs are generated dynamically via Meta Prophet and are for illustrative purposes."
+    "⚠️ **Prototype Notice & Disclaimer:** Historical market quotes are fetched live from Yahoo Finance (`yfinance`). "
+    "Predictive outputs are generated dynamically via Meta Prophet and **should not be interpreted as absolute truth, financial advice, or set-in-stone guarantees**. "
+    "All figures are strictly for illustrative, exploratory, and prototyping purposes."
 )
 
 # -----------------------------------------------------------------------------
