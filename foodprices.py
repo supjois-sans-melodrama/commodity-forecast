@@ -14,8 +14,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("📈 Real-Time Global Commodity Price & Forecast Dashboard")
-st.markdown("Live commodity prices (from 2010) with dynamic machine learning projections up to **2036**.")
+st.title("📈 Global Commodity Price & Forecast Dashboard")
+st.markdown("Commodity prices (from 2010) with dynamic machine learning projections up to **2036**.")
 
 st.warning(
     "⚠️ **Prototype Notice & Disclaimer:** Historical market quotes are fetched live from Yahoo Finance (`yfinance`). "
@@ -315,34 +315,26 @@ if df_data is not None:
             y_actual = hist_df['price_converted'].values
             y_pred = hist_fitted['yhat'].values[:len(y_actual)]
 
-            mape_val = np.mean(np.abs((y_actual - y_pred) / y_actual)) * 100
             rmse_val = np.sqrt(np.mean((y_actual - y_pred) ** 2))
             mae_val = np.mean(np.abs(y_actual - y_pred))
 
-            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1, col_m2 = st.columns(2)
             col_m1.metric(
-                label="MAPE (Mean Absolute % Error)", 
-                value=f"{mape_val:.2f}%", 
-                help="Average relative error across fitted historical data points."
-            )
-            col_m2.metric(
                 label=f"RMSE (Root Mean Squared Error in {country_info['iso']})", 
                 value=f"{country_info['symbol']}{rmse_val:.2f}",
                 help="Standard deviation of residuals in selected regional currency."
             )
-            col_m3.metric(
+            col_m2.metric(
                 label=f"MAE (Mean Absolute Error in {country_info['iso']})", 
                 value=f"{country_info['symbol']}{mae_val:.2f}",
                 help="Average absolute discrepancy between actual and fitted historical prices."
             )
 
         st.markdown("#### Formal Metric Formulations")
-        col_f1, col_f2, col_f3 = st.columns(3)
+        col_f1, col_f2 = st.columns(2)
         with col_f1:
-            st.latex(r"\text{MAPE} = \frac{100\%}{n} \sum_{t=1}^{n} \left| \frac{y_t - \hat{y}_t}{y_t} \right|")
-        with col_f2:
             st.latex(r"\text{RMSE} = \sqrt{\frac{1}{n} \sum_{t=1}^{n} (y_t - \hat{y}_t)^2}")
-        with col_f3:
+        with col_f2:
             st.latex(r"\text{MAE} = \frac{1}{n} \sum_{t=1}^{n} |y_t - \hat{y}_t|")
 
         st.markdown("---")
